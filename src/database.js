@@ -1,6 +1,6 @@
 const mysql = require("promise-mysql");
 const dotenv = require("dotenv");
-dotenv.config;
+dotenv.config();
 
 
 const connection = mysql.createConnection({
