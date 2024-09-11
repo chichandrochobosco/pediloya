@@ -182,6 +182,29 @@ app.post('/usuario', async (req, res) => {
    });
  });
 
+ //obtener perfil
+ app.get('/perfil/:id', (req, res) => {
+  const usuarioId = req.params.id;
+
+  // Consulta para obtener los detalles del perfil
+  const query = `SELECT id, nombre, email, fecha_registro, direccion, telefono FROM usuarios WHERE id = ?`;
+
+  connection.query(query, [usuarioId], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener el perfil del usuario.' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).send({ message: 'Usuario no encontrado.' });
+    }
+
+    // Devolver el perfil del usuario
+    res.status(200).send(results[0]);
+  });
+});
+
+//
+
 
  //CARRITO
 
@@ -324,5 +347,268 @@ app.delete('/carrito/:id/producto/:productoId', (req, res) => {
     }
 
     res.status(200).send({ message: 'Producto eliminado del carrito.' });
+  });
+});
+
+
+//PEDIDO
+
+
+//Método Obtener pedidos
+app.get('/pedidos', (req, res) => {
+  const cantidad = req.query.cantidad ? parseInt(req.query.cantidad) : 10; // Por defecto 10
+  const estado = req.query.estado; // Opcional, para filtrar por estado
+  const fecha = req.query.fecha; // Opcional, para filtrar por fecha
+  
+  // Construcción de la consulta SQL con los filtros opcionales
+  let query = `SELECT id, usuario_id, estado, fecha, precio FROM pedidos`;
+  const queryParams = [];
+
+  if (estado || fecha) {
+    query += ` WHERE`;
+    if (estado) {
+      query += ` estado = ?`;
+      queryParams.push(estado);
+    }
+    if (fecha) {
+      if (estado) query += ` AND`;
+      query += ` fecha = ?`;
+      queryParams.push(fecha);
+    }
+  }
+
+  query += ` LIMIT ?`;
+  queryParams.push(cantidad);
+
+  connection.query(query, queryParams, (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener los pedidos.' });
+    }
+
+    res.status(200).send(results);
+  });
+});
+
+//Método obtener productos de un pedido
+
+app.get('/pedido/:id/productos', (req, res) => {
+  const pedidoId = req.params.id;
+
+  // Consulta para obtener los productos de un pedido
+  const query = `
+    SELECT p.id, p.nombre, p.descripcion, p.precio, p.imagen, pp.cantidad 
+    FROM pedido_productos pp
+    JOIN productos p ON pp.producto_id = p.id
+    WHERE pp.pedido_id = ?`;
+
+  connection.query(query, [pedidoId], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener los productos del pedido.' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).send({ message: 'No se encontraron productos para este pedido.' });
+    }
+
+    // Retornar la lista de productos
+    res.status(200).send(results);
+  });
+});
+
+//obtener pedido por id
+
+app.get('/pedido/:id', (req, res) => {
+  const pedidoId = req.params.id;
+
+  // Consulta para obtener el pedido por su ID
+  const query = `
+    SELECT id, usuario_id, estado, fecha, precio
+    FROM pedidos
+    WHERE id = ?`;
+
+  connection.query(query, [pedidoId], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener el pedido.' });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).send({ message: 'Pedido no encontrado.' });
+    }
+
+    // Retornar el objeto pedido
+    res.status(200).send(results[0]);
+  });
+});
+
+//actualizar estado de un pedido
+
+app.put('/pedido/:id/estado', (req, res) => {
+  const pedidoId = req.params.id;
+  const { estado } = req.body;
+
+  // Verificar si el estado es válido
+  const estadosValidos = ['pendiente', 'completado', 'cancelado'];
+  if (!estadosValidos.includes(estado)) {
+    return res.status(400).send({ message: 'Estado no válido' });
+  }
+
+  // Consulta para actualizar el estado del pedido
+  const query = `
+    UPDATE pedidos
+    SET estado = ?
+    WHERE id = ?`;
+
+  connection.query(query, [estado, pedidoId], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al actualizar el estado del pedido.' });
+    }
+
+    if (results.affectedRows === 0) {
+      return res.status(404).send({ message: 'Pedido no encontrado.' });
+    }
+
+    // Retornar éxito de la operación
+    res.status(200).send({ success: true });
+  });
+});
+
+//eliminar un pedido
+app.delete('/pedido/:id', (req, res) => {
+  const pedidoId = req.params.id;
+
+  // Consulta para eliminar el pedido (productos relacionados se eliminan automáticamente gracias a ON DELETE CASCADE)
+  const query = `DELETE FROM pedidos WHERE id = ?`;
+
+  connection.query(query, [pedidoId], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al eliminar el pedido.' });
+    }
+
+    if (results.affectedRows === 0) {
+      return res.status(404).send({ message: 'Pedido no encontrado.' });
+    }
+
+    // Retornar éxito de la operación
+    res.status(200).send({ success: true });
+  });
+});
+
+//MENU DEL DIA
+
+//agregar plato al menu del dia
+app.post('/menu-dia', (req, res) => {
+  const { nombre, descripcion, precio, fecha } = req.body;
+
+  // Consulta para insertar un nuevo plato en la tabla de platos
+  const queryPlato = `INSERT INTO platos (nombre, descripcion, precio) VALUES (?, ?, ?)`;
+
+  connection.query(queryPlato, [nombre, descripcion, precio], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al agregar el plato.' });
+    }
+
+    const platoId = results.insertId;
+
+    // Consulta para agregar el plato al menú del día para la fecha especificada
+    const queryMenuDia = `INSERT INTO menu_dia (fecha, plato_id) VALUES (?, ?)`;
+
+    connection.query(queryMenuDia, [fecha, platoId], (error, results) => {
+      if (error) {
+        return res.status(500).send({ message: 'Error al agregar el plato al menú del día.' });
+      }
+
+      // Retornar éxito de la operación
+      res.status(200).send({ success: true, message: 'Plato agregado al menú del día correctamente.' });
+    });
+  });
+});
+
+// Ruta para obtener los platos del menú del día basados en ventas o reseñas
+app.get('/menu-dia', (req, res) => {
+  const { fecha, ordenarPor } = req.query; // "ventas" o "reseñas"
+
+  let query = `
+    SELECT p.id, p.nombre, p.descripcion, p.precio, 
+    SUM(v.cantidad) AS total_ventas, AVG(r.calificacion) AS promedio_reseñas
+    FROM platos p
+    JOIN menu_dia m ON p.id = m.plato_id
+    LEFT JOIN ventas v ON p.id = v.plato_id
+    LEFT JOIN reseñas r ON p.id = r.plato_id
+    WHERE m.fecha = ?
+    GROUP BY p.id
+  `;
+
+  // Ordenar por cantidad de ventas o calificaciones de reseñas
+  if (ordenarPor === 'ventas') {
+    query += ` ORDER BY total_ventas DESC`;
+  } else if (ordenarPor === 'reseñas') {
+    query += ` ORDER BY promedio_reseñas DESC`;
+  }
+
+  connection.query(query, [fecha], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener los platos del menú del día.' });
+    }
+
+    // Devolver los platos del menú del día
+    res.status(200).send(results);
+  });
+});
+
+// Ruta para eliminar un plato específico del menú del día
+app.delete('/menu-dia/:fecha/:plato_id', (req, res) => {
+  const { fecha, plato_id } = req.params;
+
+  // Consulta para eliminar el plato del menú del día para la fecha específica
+  const query = `DELETE FROM menu_dia WHERE fecha = ? AND plato_id = ?`;
+
+  connection.query(query, [fecha, plato_id], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al eliminar el plato del menú del día.' });
+    }
+
+    if (results.affectedRows === 0) {
+      return res.status(404).send({ message: 'No se encontró el plato para la fecha especificada.' });
+    }
+
+    // Retornar éxito si se eliminó correctamente
+    res.status(200).send({ success: true, message: 'Plato eliminado del menú del día correctamente.' });
+  });
+});
+
+// Ruta para obtener el menú semanal
+app.get('/menu-semanal', (req, res) => {
+  const { fecha_inicio, fecha_fin } = req.query; // Fechas de inicio y fin de la semana
+
+  // Consulta SQL para obtener los platos del menú para la semana
+  const query = `
+    SELECT m.fecha, p.nombre, p.descripcion, p.precio
+    FROM menu_dia m
+    JOIN platos p ON m.plato_id = p.id
+    WHERE m.fecha BETWEEN ? AND ?
+    ORDER BY m.fecha
+  `;
+
+  connection.query(query, [fecha_inicio, fecha_fin], (error, results) => {
+    if (error) {
+      return res.status(500).send({ message: 'Error al obtener el menú semanal.' });
+    }
+
+    // Agrupar los platos por fecha para generar una vista del menú semanal
+    const menuSemanal = results.reduce((acc, plato) => {
+      const fecha = plato.fecha.toISOString().split('T')[0]; // Formatear la fecha
+      if (!acc[fecha]) {
+        acc[fecha] = [];
+      }
+      acc[fecha].push({
+        nombre: plato.nombre,
+        descripcion: plato.descripcion,
+        precio: plato.precio
+      });
+      return acc;
+    }, {});
+
+    // Devolver el menú semanal agrupado por fecha
+    res.status(200).send(menuSemanal);
   });
 });
